@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import UserNotifications
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -15,7 +16,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { (success, error) in }
+        UNUserNotificationCenter.current().delegate = self
         return true
     }
 
@@ -40,7 +43,79 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationWillTerminate(_ application: UIApplication) {
         // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
     }
+}
 
-
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    
+    func scheduleNotification() {
+        
+        let downloadAction = UNNotificationAction(identifier: "DOWNLOAD_ACTION",
+                                                  title: "Download",
+                                                  options: UNNotificationActionOptions(rawValue: 0))
+        
+        let dismissAction = UNNotificationAction(identifier: "DISMISS_ACTION",
+                                                 title: "Dismiss",
+                                                 options: UNNotificationActionOptions(rawValue: 0))
+        
+        let downloadCategory = UNNotificationCategory(identifier: "DOWNLOAD_CATEGORY",
+                                                     actions: [downloadAction, dismissAction],
+                                                     intentIdentifiers: [],
+                                                     options: UNNotificationCategoryOptions(rawValue: 0))
+        
+        // Register the notification categories.
+        let center = UNUserNotificationCenter.current()
+        center.setNotificationCategories([downloadCategory])
+        
+        
+        let notificationContent = UNMutableNotificationContent()
+        notificationContent.categoryIdentifier = "DOWNLOAD_CATEGORY"
+        notificationContent.title = "New Download Available"
+        let notificationTrigger = UNTimeIntervalNotificationTrigger(timeInterval: 300, repeats: false)
+        let notificationRequest = UNNotificationRequest(identifier: "specialIdentifier", content: notificationContent, trigger: notificationTrigger)
+        
+        UNUserNotificationCenter.current().add(notificationRequest) { (error) in
+            if let error = error {
+                print("Unable to Add Notification Request (\(error), \(error.localizedDescription))")
+                return
+            }
+            
+            print("Successfully Added Notification Request")
+        }
+    }
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        print("Received: Foreground Notification")
+        downloadData()
+        completionHandler([.alert])
+    }
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        print("Received: Background Notification")
+        
+        if response.notification.request.content.categoryIdentifier == "DOWNLOAD_CATEGORY" {
+            if response.actionIdentifier == "DOWNLOAD_ACTION" {
+                print("Action: Download pressed")
+                downloadData()
+                
+            } else if response.actionIdentifier == "DISMISS_ACTION" {
+                print("Action: Dismiss pressed")
+            }
+        }
+        
+        completionHandler()
+    }
+    
+    fileprivate func downloadData() {
+        GithubService.getData(completion: { (repos, error) in
+            DispatchQueue.main.async {
+                let dateformatter = DateFormatter()
+                dateformatter.dateStyle = .short
+                dateformatter.timeStyle = .long
+                let nowString = dateformatter.string(from: Date())
+                TimestampService.saveNewData(string: nowString)
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "Notification.RefreshLocalData"), object: nil)
+            }
+        })
+    }
 }
 
